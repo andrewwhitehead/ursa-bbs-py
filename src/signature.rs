@@ -9,11 +9,12 @@ use bbs::prelude::{
 
 use std::collections::BTreeMap;
 
-use super::buffer::{
-    deserialize_field_element, deserialize_group_element, deserialize_json_arg, map_buffer_arg,
-    serialize_field_element, serialize_group_element, serialize_json_to_bytes,
-};
+use super::buffer::map_buffer_arg;
 use super::error::PyBbsResult;
+use super::helpers::{
+    deserialize_field_element, deserialize_group_element, deserialize_json_arg,
+    serialize_field_element, serialize_group_element, serialize_json_to_bytes, ExtractArg,
+};
 use super::keys::{PyPublicKey, PySecretKey};
 
 pub fn hash_message_arg(py: Python, arg: &PyAny) -> PyResult<SignatureMessage> {
@@ -21,10 +22,14 @@ pub fn hash_message_arg(py: Python, arg: &PyAny) -> PyResult<SignatureMessage> {
 }
 
 #[pyfunction]
+/// create_blinding_commitment(message, pk)
+/// --
+///
+///
 fn create_blinding_commitment<'py>(
     py: Python<'py>,
     message: &PyAny,
-    pk: PyRef<PyPublicKey>,
+    pk: ExtractArg<PyPublicKey>,
 ) -> PyResult<(String, String)> {
     let message = hash_message_arg(py, message)?;
     let signature_blinding = Signature::generate_blinding();
@@ -36,11 +41,15 @@ fn create_blinding_commitment<'py>(
 }
 
 #[pyfunction]
+/// create_blinding_context(messages, pk, signing_nonce)
+/// --
+///
+///
 fn create_blinding_context<'py>(
     py: Python<'py>,
     messages: BTreeMap<usize, &PyAny>,
-    pk: PyRef<PyPublicKey>,
-    issuer_nonce: &PyAny,
+    pk: ExtractArg<PyPublicKey>,
+    signing_nonce: &PyAny,
 ) -> PyResult<(String, &'py PyBytes)> {
     let messages = messages
         .into_iter()
@@ -48,9 +57,9 @@ fn create_blinding_context<'py>(
             ms.insert(idx, hash_message_arg(py, elt)?);
             PyResult::Ok(ms)
         })?;
-    let issuer_nonce: SignatureNonce = deserialize_field_element(py, &issuer_nonce)?;
+    let signing_nonce: SignatureNonce = deserialize_field_element(py, &signing_nonce)?;
     let (ctx, blinding) =
-        Prover::new_blind_signature_context(&pk, &messages, &issuer_nonce).map_py_err()?;
+        Prover::new_blind_signature_context(&pk, &messages, &signing_nonce).map_py_err()?;
     Ok((
         serialize_field_element(blinding)?,
         serialize_json_to_bytes(py, &ctx)?,
@@ -58,32 +67,44 @@ fn create_blinding_context<'py>(
 }
 
 #[pyfunction]
+/// generate_signing_nonce()
+/// --
+///
+/// Generate a new nonce for use in creating a blind signature
 fn generate_signing_nonce() -> PyResult<String> {
     let nonce = Issuer::generate_signing_nonce();
     serialize_field_element(nonce)
 }
 
 #[pyfunction]
+/// sign_messages(messages, sk, pk)
+/// --
+///
+///
 fn sign_messages<'py>(
     py: Python<'py>,
     messages: Vec<&PyAny>,
-    sk: PyRef<PySecretKey>,
-    pk: PyRef<PyPublicKey>,
+    sk: ExtractArg<PySecretKey>,
+    pk: ExtractArg<PyPublicKey>,
 ) -> PyResult<&'py PyBytes> {
     let messages = messages.into_iter().try_fold(vec![], |mut ms, elt| {
         ms.push(hash_message_arg(py, elt)?);
         PyResult::Ok(ms)
     })?;
-    let signature = Signature::new(messages.as_slice(), &*sk, &*pk).map_py_err()?;
+    let signature = Signature::new(messages.as_slice(), &*sk, &pk).map_py_err()?;
     serialize_json_to_bytes(py, &signature)
 }
 
 #[pyfunction]
+/// sign_messages_blinded_commitment(messages, sk, pk, commitment)
+/// --
+///
+///
 fn sign_messages_blinded_commitment<'py>(
     py: Python<'py>,
     messages: BTreeMap<usize, &PyAny>,
-    sk: PyRef<PySecretKey>,
-    pk: PyRef<PyPublicKey>,
+    sk: ExtractArg<PySecretKey>,
+    pk: ExtractArg<PyPublicKey>,
     commitment: &PyAny,
 ) -> PyResult<&'py PyBytes> {
     let messages = messages
@@ -98,11 +119,15 @@ fn sign_messages_blinded_commitment<'py>(
 }
 
 #[pyfunction]
+/// sign_messages_blinded_context(messages, sk, pk, context, signing_nonce)
+/// --
+///
+///
 fn sign_messages_blinded_context<'py>(
     py: Python<'py>,
     messages: BTreeMap<usize, &PyAny>,
-    sk: PyRef<PySecretKey>,
-    pk: PyRef<PyPublicKey>,
+    sk: ExtractArg<PySecretKey>,
+    pk: ExtractArg<PyPublicKey>,
     context: &PyAny,
     signing_nonce: &PyAny,
 ) -> PyResult<&'py PyBytes> {
@@ -120,6 +145,10 @@ fn sign_messages_blinded_context<'py>(
 }
 
 #[pyfunction]
+/// unblind_signature(signature, blinding)
+/// --
+///
+///
 fn unblind_signature<'py>(
     py: Python<'py>,
     signature: &PyAny,
@@ -132,11 +161,15 @@ fn unblind_signature<'py>(
 }
 
 #[pyfunction]
+/// verify_signature(messages, signature, pk)
+/// --
+///
+///
 fn verify_signature<'py>(
     py: Python<'py>,
     messages: Vec<&PyAny>,
     signature: &PyAny,
-    pk: PyRef<PyPublicKey>,
+    pk: ExtractArg<PyPublicKey>,
 ) -> PyResult<bool> {
     let messages = messages.into_iter().try_fold(vec![], |mut ms, elt| {
         ms.push(hash_message_arg(py, elt)?);

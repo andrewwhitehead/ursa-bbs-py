@@ -7,25 +7,33 @@ use bbs::prelude::{
     SignatureProof, Verifier,
 };
 
-use super::buffer::{
-    deserialize_field_element, deserialize_json_arg, serialize_field_element,
-    serialize_json_to_bytes,
-};
 use super::error::PyBbsResult;
+use super::helpers::{
+    deserialize_field_element, deserialize_json_arg, serialize_field_element,
+    serialize_json_to_bytes, ExtractArg,
+};
 use super::keys::PyPublicKey;
 use super::signature::hash_message_arg;
 
 #[pyfunction]
+/// create_proof_request(reveal_indices, pk)
+/// --
+///
+/// Create new proof request for a sequence of revealed message indices
 fn create_proof_request<'py>(
     py: Python<'py>,
     reveal_indices: Vec<usize>,
-    pk: PyRef<PyPublicKey>,
+    pk: ExtractArg<PyPublicKey>,
 ) -> PyResult<&'py PyBytes> {
     let proof_request = Verifier::new_proof_request(&reveal_indices, &pk).map_py_err()?;
     serialize_json_to_bytes(py, &proof_request)
 }
 
 #[pyfunction]
+/// commit_signature_pok(messages, reveal_indices, proof_request, signature)
+/// --
+///
+///
 fn commit_signature_pok<'py>(
     py: Python<'py>,
     messages: Vec<&PyAny>,
@@ -55,29 +63,41 @@ fn commit_signature_pok<'py>(
 }
 
 #[pyfunction]
+/// generate_proof_nonce()
+/// --
+///
+/// Generate a new nonce for sending to a prover
 fn generate_proof_nonce() -> PyResult<String> {
     let nonce = Verifier::generate_proof_nonce();
     serialize_field_element(nonce)
 }
 
 #[pyfunction]
+/// generate_challenge_pok(poks, proof_nonce)
+/// --
+///
+/// Generate a proof challenge from a set of PoKs and a proof nonce
 fn generate_challenge_pok<'py>(
     py: Python<'py>,
-    poks_json: Vec<&PyAny>,
-    verifier_nonce: &PyAny,
+    poks: Vec<&PyAny>,
+    proof_nonce: &PyAny,
 ) -> PyResult<String> {
     let mut challenge_bytes = vec![];
-    for pok_json in poks_json {
+    for pok_json in poks {
         let pok: PoKOfSignature = deserialize_json_arg(py, pok_json)?;
         challenge_bytes.extend_from_slice(&pok.to_bytes());
     }
-    let nonce: SignatureNonce = deserialize_field_element(py, &verifier_nonce)?;
-    challenge_bytes.extend_from_slice(&nonce.to_bytes());
+    let proof_nonce: SignatureNonce = deserialize_field_element(py, &proof_nonce)?;
+    challenge_bytes.extend_from_slice(&proof_nonce.to_bytes());
     let challenge = SignatureNonce::from_msg_hash(&challenge_bytes);
     serialize_field_element(challenge)
 }
 
 #[pyfunction]
+/// generate_signature_pok(pok, challenge)
+/// --
+///
+///
 fn generate_signature_pok<'py>(
     py: Python<'py>,
     pok: &PyAny,
@@ -90,16 +110,20 @@ fn generate_signature_pok<'py>(
 }
 
 #[pyfunction]
+/// verify_signature_pok(proof_request, proof, proof_nonce)
+/// --
+///
+///
 fn verify_signature_pok<'py>(
     py: Python<'py>,
     proof_request: &PyAny,
     proof: &PyAny,
-    nonce: &PyAny,
+    proof_nonce: &PyAny,
 ) -> PyResult<bool> {
     let proof_request: ProofRequest = deserialize_json_arg(py, proof_request)?;
     let proof: SignatureProof = deserialize_json_arg(py, &proof)?;
-    let nonce: SignatureNonce = deserialize_field_element(py, &nonce)?;
-    match Verifier::verify_signature_pok(&proof_request, &proof, &nonce) {
+    let proof_nonce: SignatureNonce = deserialize_field_element(py, &proof_nonce)?;
+    match Verifier::verify_signature_pok(&proof_request, &proof, &proof_nonce) {
         Ok(_) => Ok(true),
         Err(_) => Ok(false),
     }

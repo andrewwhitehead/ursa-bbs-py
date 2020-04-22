@@ -11,10 +11,11 @@ def test_random_short_keys():
     dst = bbs.DomainSeparationTag(b"testgen", None, None, None)
     pk = dpk.to_public_key(5, dst)
     log("Public key:", pk.to_json())
+    log("Secret key:", sk, bytes(sk))
 
 
 def test_seed_short_keys():
-    dpk, sk = bbs.new_short_keys(b"seed00001")
+    dpk, sk = bbs.new_short_keys(seed=b"seed00001")
     dst = bbs.DomainSeparationTag(b"testgen", None, None, None)
     pk = dpk.to_public_key(5, dst)
     log("Public key:", pk.to_json())

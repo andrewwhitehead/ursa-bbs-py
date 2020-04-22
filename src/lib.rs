@@ -1,8 +1,8 @@
 use pyo3::prelude::*;
 
-mod error;
-
 mod buffer;
+mod error;
+mod helpers;
 mod keys;
 mod proof;
 mod signature;
