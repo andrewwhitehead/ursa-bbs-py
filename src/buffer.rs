@@ -3,7 +3,7 @@ use std::os::raw::{c_int, c_void};
 use std::ptr;
 
 use pyo3::buffer::PyBuffer;
-use pyo3::exceptions::{BufferError, Exception, ValueError};
+use pyo3::exceptions::{BufferError, ValueError};
 use pyo3::ffi::{PyBUF_FORMAT, PyBUF_ND, PyBUF_STRIDES, PyBUF_WRITABLE, Py_INCREF, Py_buffer};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyString};
@@ -12,6 +12,8 @@ use pyo3::AsPyPointer;
 use zeroize::Zeroize;
 
 use bbs::prelude::{GroupElement, SignatureNonce};
+
+use super::error::PyBbsResult;
 
 pub fn copy_buffer_arg(py: Python, data: &PyAny) -> PyResult<Vec<u8>> {
     let buffer = PyBuffer::get(py, data)?;
@@ -27,7 +29,7 @@ pub fn copy_buffer_arg_to_slice(py: Python, data: &PyAny, target: &mut [u8]) -> 
     if buffer.len_bytes() == target.len() {
         buffer.copy_to_slice(py, target)
     } else {
-        Err(PyErr::new::<ValueError, _>(format!(
+        Err(ValueError::py_err(format!(
             "Invalid input size, expected {} bytes",
             target.len()
         )))
@@ -114,12 +116,7 @@ pub fn serialize_json_to_bytes<'py, T>(py: Python<'py>, obj: &T) -> PyResult<&'p
 where
     T: serde::ser::Serialize,
 {
-    let result = serde_json::to_vec(obj).map_err(|e|
-        // FIXME
-        PyErr::new::<Exception, _>(format!(
-            "Error serializing to JSON: {}",
-            e.to_string()
-        )))?;
+    let result = serde_json::to_vec(obj).map_py_err()?;
     Ok(PyBytes::new(py, &result))
 }
 
@@ -128,9 +125,8 @@ where
     T: for<'a> serde::Deserialize<'a>,
 {
     map_buffer_arg(py, arg, |bytes| {
-        serde_json::from_slice::<T>(bytes).map_err(|e| {
-            PyErr::new::<ValueError, _>(format!("Invalid JSON input: {}", e.to_string()))
-        })
+        serde_json::from_slice::<T>(bytes)
+            .map_err(|e| ValueError::py_err(format!("Invalid JSON input: {}", e.to_string())))
     })
 }
 
@@ -147,7 +143,7 @@ pub fn deserialize_field_element<'py>(py: Python<'py>, arg: &PyAny) -> PyResult<
         })?
     };
     SignatureNonce::from_hex(strval)
-        .map_err(|e| PyErr::new::<ValueError, _>(format!("Invalid JSON input: {}", e.to_string())))
+        .map_err(|e| ValueError::py_err(format!("Invalid JSON input: {}", e.to_string())))
 }
 
 pub fn serialize_group_element<T: GroupElement>(val: T) -> PyResult<String> {
@@ -166,7 +162,7 @@ pub fn deserialize_group_element<'py, T: GroupElement>(
         })?
     };
     T::from_hex(strval)
-        .map_err(|e| PyErr::new::<ValueError, _>(format!("Invalid JSON input: {}", e.to_string())))
+        .map_err(|e| ValueError::py_err(format!("Invalid JSON input: {}", e.to_string())))
 }
 
 #[pyclass(name=SafeBuffer)]

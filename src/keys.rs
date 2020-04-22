@@ -2,7 +2,7 @@ use std::os::raw::c_int;
 
 use pyo3::buffer::PyBuffer;
 use pyo3::class::{PyBufferProtocol, PyObjectProtocol};
-use pyo3::exceptions::{Exception, ValueError};
+use pyo3::exceptions::ValueError;
 use pyo3::ffi::Py_buffer;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -17,6 +17,7 @@ use super::buffer::{
     copy_buffer_arg, copy_buffer_arg_to_slice, copy_buffer_opt_arg, create_buffer, release_buffer,
     serialize_json_to_bytes,
 };
+use super::error::{BbsError, PyBbsResult};
 
 #[pyclass(name=PublicKey)]
 pub struct PyPublicKey {
@@ -32,10 +33,7 @@ impl PyPublicKey {
             unsafe { std::slice::from_raw_parts(buffer.buf_ptr() as *mut u8, buffer.len_bytes()) };
         // FIXME does this panic if the buffer size is wrong?
         let inner = PublicKey::from_bytes(data).map_err(|e| {
-            PyErr::new::<ValueError, _>(format!(
-                "Error deserializing public key: {}",
-                e.to_string()
-            ))
+            ValueError::py_err(format!("Error deserializing public key: {}", e.to_string()))
         })?;
         Ok(Self::new(inner))
     }
@@ -49,7 +47,6 @@ impl PyPublicKey {
 impl PyBufferProtocol for PyPublicKey {
     fn bf_getbuffer(slf: PyRefMut<Self>, view: *mut Py_buffer, flags: c_int) -> PyResult<()> {
         let buf = slf.inner.to_bytes();
-        println!("pk len {}", buf.len());
         let py = unsafe { Python::assume_gil_acquired() };
         create_buffer(py, buf, view, flags)
     }
@@ -112,17 +109,16 @@ impl PyDeterministicPublicKey {
             dstref.to_owned()
         } else {
             let dst_bytes = copy_buffer_arg(py, dst)?;
-            DomainSeparationTag::new(dst_bytes.as_ref(), None, None, None).map_err(|e|
-                // FIXME add custom exception type
-                PyErr::new::<Exception, _>(format!("Error creating domain separation tag: {}", e.to_string()))
-            )?
+            DomainSeparationTag::new(dst_bytes.as_ref(), None, None, None).map_err(|e| {
+                PyErr::new::<BbsError, _>(format!(
+                    "Error creating domain separation tag: {}",
+                    e.to_string()
+                ))
+            })?
         };
         let pk = (&self.inner)
             .to_public_key(message_count, dst.to_owned())
-            .map_err(|e|
-                // FIXME add custom exception type
-                PyErr::new::<Exception, _>(format!("Error creating public key: {}", e.to_string())),
-            )?;
+            .map_py_err()?;
         Ok(PyPublicKey::new(pk))
     }
 }
@@ -173,10 +169,7 @@ impl PySecretKey {
         let data =
             unsafe { std::slice::from_raw_parts(buffer.buf_ptr() as *mut u8, buffer.len_bytes()) };
         let inner = SecretKey::from_bytes(data).map_err(|e| {
-            PyErr::new::<ValueError, _>(format!(
-                "Error deserializing secret key: {}",
-                e.to_string()
-            ))
+            ValueError::py_err(format!("Error deserializing secret key: {}", e.to_string()))
         })?;
         Ok(Self::new(inner))
     }
@@ -245,7 +238,7 @@ impl PyDomainSeparationTag {
             encoding_id.as_deref(),
         )
         .map_err(|e| {
-            PyErr::new::<ValueError, _>(format!(
+            ValueError::py_err(format!(
                 "Error creating domain separation tag: {}",
                 e.to_string()
             ))
@@ -286,10 +279,7 @@ impl PyDomainSeparationTag {
 
 #[pyfunction]
 fn new_keys(message_count: usize) -> PyResult<(PyPublicKey, PySecretKey)> {
-    let (pk, sk) = Issuer::new_keys(message_count).map_err(|e| {
-        // FIXME add custom exception type
-        PyErr::new::<Exception, _>(format!("Error creating keypair: {}", e.to_string()))
-    })?;
+    let (pk, sk) = Issuer::new_keys(message_count).map_py_err()?;
     Ok((PyPublicKey::new(pk), PySecretKey::new(sk)))
 }
 

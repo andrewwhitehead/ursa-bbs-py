@@ -1,4 +1,3 @@
-use pyo3::exceptions::Exception;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use pyo3::wrap_pyfunction;
@@ -12,6 +11,7 @@ use super::buffer::{
     deserialize_field_element, deserialize_json_arg, serialize_field_element,
     serialize_json_to_bytes,
 };
+use super::error::PyBbsResult;
 use super::keys::PyPublicKey;
 use super::signature::hash_message_arg;
 
@@ -21,10 +21,7 @@ fn create_proof_request<'py>(
     reveal_indices: Vec<usize>,
     pk: PyRef<PyPublicKey>,
 ) -> PyResult<&'py PyBytes> {
-    let proof_request = Verifier::new_proof_request(&reveal_indices, &pk).map_err(|e| {
-        // FIXME
-        PyErr::new::<Exception, _>(format!("Error creating proof request: {}", e.to_string()))
-    })?;
+    let proof_request = Verifier::new_proof_request(&reveal_indices, &pk).map_py_err()?;
     serialize_json_to_bytes(py, &proof_request)
 }
 
@@ -53,13 +50,7 @@ fn commit_signature_pok<'py>(
     let proof_request: ProofRequest = deserialize_json_arg(py, proof_request)?;
     let signature: Signature = deserialize_json_arg(py, &signature)?;
     let pok = Prover::commit_signature_pok(&proof_request, proof_messages.as_slice(), &signature)
-        .map_err(|e| {
-        // FIXME
-        PyErr::new::<Exception, _>(format!(
-            "Error creating proof of knowledge: {}",
-            e.to_string()
-        ))
-    })?;
+        .map_py_err()?;
     serialize_json_to_bytes(py, &pok)
 }
 
@@ -94,12 +85,7 @@ fn generate_signature_pok<'py>(
 ) -> PyResult<&'py PyBytes> {
     let pok: PoKOfSignature = deserialize_json_arg(py, pok)?;
     let challenge: SignatureNonce = deserialize_field_element(py, &challenge)?;
-    let proof = Prover::generate_signature_pok(pok, &challenge).map_err(|e|
-        // FIXME
-        PyErr::new::<Exception, _>(format!(
-            "Error creating proof of knowledge: {}",
-            e.to_string()
-        )))?;
+    let proof = Prover::generate_signature_pok(pok, &challenge).map_py_err()?;
     serialize_json_to_bytes(py, &proof)
 }
 

@@ -1,5 +1,7 @@
 use pyo3::prelude::*;
 
+mod error;
+
 mod buffer;
 mod keys;
 mod proof;

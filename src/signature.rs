@@ -1,4 +1,3 @@
-use pyo3::exceptions::Exception;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use pyo3::wrap_pyfunction;
@@ -14,6 +13,7 @@ use super::buffer::{
     deserialize_field_element, deserialize_group_element, deserialize_json_arg, map_buffer_arg,
     serialize_field_element, serialize_group_element, serialize_json_to_bytes,
 };
+use super::error::PyBbsResult;
 use super::keys::{PyPublicKey, PySecretKey};
 
 pub fn hash_message_arg(py: Python, arg: &PyAny) -> PyResult<SignatureMessage> {
@@ -49,10 +49,8 @@ fn create_blinding_context<'py>(
             PyResult::Ok(ms)
         })?;
     let issuer_nonce: SignatureNonce = deserialize_field_element(py, &issuer_nonce)?;
-    let (ctx, blinding) = Prover::new_blind_signature_context(&pk, &messages, &issuer_nonce)
-        .map_err(|e|
-        // FIXME add custom exception type
-        PyErr::new::<Exception, _>(format!("Error creating blinding context: {}", e.to_string())))?;
+    let (ctx, blinding) =
+        Prover::new_blind_signature_context(&pk, &messages, &issuer_nonce).map_py_err()?;
     Ok((
         serialize_field_element(blinding)?,
         serialize_json_to_bytes(py, &ctx)?,
@@ -76,9 +74,7 @@ fn sign_messages<'py>(
         ms.push(hash_message_arg(py, elt)?);
         PyResult::Ok(ms)
     })?;
-    let signature = Signature::new(messages.as_slice(), &*sk, &*pk).map_err(|e|
-        // FIXME add custom exception type
-        PyErr::new::<Exception, _>(format!("Error creating signature: {}", e.to_string())))?;
+    let signature = Signature::new(messages.as_slice(), &*sk, &*pk).map_py_err()?;
     serialize_json_to_bytes(py, &signature)
 }
 
@@ -97,9 +93,7 @@ fn sign_messages_blinded_commitment<'py>(
             PyResult::Ok(ms)
         })?;
     let commitment: BlindedSignatureCommitment = deserialize_group_element(py, commitment)?;
-    let blind_signature = BlindSignature::new(&commitment, &messages, &sk, &pk).map_err(|e|
-        // FIXME add custom exception type
-        PyErr::new::<Exception, _>(format!("Error creating blinded signature: {}", e.to_string())))?;
+    let blind_signature = BlindSignature::new(&commitment, &messages, &sk, &pk).map_py_err()?;
     serialize_json_to_bytes(py, &blind_signature)
 }
 
@@ -120,9 +114,8 @@ fn sign_messages_blinded_context<'py>(
         })?;
     let context: BlindSignatureContext = deserialize_json_arg(py, context)?;
     let signing_nonce: SignatureNonce = deserialize_field_element(py, &signing_nonce)?;
-    let blind_signature = Issuer::blind_sign(&context, &messages, &sk, &pk, &signing_nonce).map_err(|e|
-        // FIXME add custom exception type
-        PyErr::new::<Exception, _>(format!("Error creating blinded signature: {}", e.to_string())))?;
+    let blind_signature =
+        Issuer::blind_sign(&context, &messages, &sk, &pk, &signing_nonce).map_py_err()?;
     serialize_json_to_bytes(py, &blind_signature)
 }
 
@@ -150,9 +143,7 @@ fn verify_signature<'py>(
         PyResult::Ok(ms)
     })?;
     let signature: Signature = deserialize_json_arg(py, &signature)?;
-    signature.verify(messages.as_slice(), &pk).map_err(|e|
-        // FIXME add custom exception type
-        PyErr::new::<Exception, _>(format!("Error verifying signature: {}", e.to_string())))
+    signature.verify(messages.as_slice(), &pk).map_py_err()
 }
 
 pub fn register(_py: Python, m: &PyModule) -> PyResult<()> {
