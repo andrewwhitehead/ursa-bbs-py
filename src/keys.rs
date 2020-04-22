@@ -5,7 +5,7 @@ use pyo3::class::{PyBufferProtocol, PyObjectProtocol};
 use pyo3::exceptions::{Exception, ValueError};
 use pyo3::ffi::Py_buffer;
 use pyo3::prelude::*;
-use pyo3::types::PyType;
+use pyo3::types::PyBytes;
 use pyo3::{wrap_pyfunction, PyRefMut, PyTypeInfo};
 
 use bbs::prelude::{
@@ -15,6 +15,7 @@ use bbs::prelude::{
 
 use super::buffer::{
     copy_buffer_arg, copy_buffer_arg_to_slice, copy_buffer_opt_arg, create_buffer, release_buffer,
+    serialize_json_to_bytes,
 };
 
 #[pyclass(name=PublicKey)]
@@ -38,12 +39,17 @@ impl PyPublicKey {
         })?;
         Ok(Self::new(inner))
     }
+
+    pub fn to_json<'py>(slf: PyRef<Self>, py: Python<'py>) -> PyResult<&'py PyBytes> {
+        serialize_json_to_bytes(py, &slf.inner)
+    }
 }
 
 #[pyproto]
 impl PyBufferProtocol for PyPublicKey {
     fn bf_getbuffer(slf: PyRefMut<Self>, view: *mut Py_buffer, flags: c_int) -> PyResult<()> {
         let buf = slf.inner.to_bytes();
+        println!("pk len {}", buf.len());
         let py = unsafe { Python::assume_gil_acquired() };
         create_buffer(py, buf, view, flags)
     }
@@ -93,26 +99,6 @@ impl PyDeterministicPublicKey {
             let inner = DeterministicPublicKey::from_bytes(data_cpy);
             Ok(Self::new(inner))
         }
-    }
-
-    #[classmethod]
-    fn random(_cls: &PyType) -> PyResult<(Self, PySecretKey)> {
-        let (dpk, sk) = DeterministicPublicKey::new(None);
-        Ok((PyDeterministicPublicKey::new(dpk), PySecretKey::new(sk)))
-    }
-
-    #[classmethod]
-    pub fn from_seed(_cls: &PyType, py: Python, seed: &PyAny) -> PyResult<(Self, PySecretKey)> {
-        let seed = copy_buffer_arg(py, seed)?;
-        let (dpk, sk) = DeterministicPublicKey::new(Some(KeyGenOption::UseSeed(seed)));
-        Ok((PyDeterministicPublicKey::new(dpk), PySecretKey::new(sk)))
-    }
-
-    #[classmethod]
-    pub fn from_secret_key(_cls: &PyType, key: PyRef<PySecretKey>) -> PyResult<Self> {
-        let sk = key.to_owned();
-        let (dpk, _sk) = DeterministicPublicKey::new(Some(KeyGenOption::FromSecretKey(sk)));
-        Ok(PyDeterministicPublicKey::new(dpk))
     }
 
     pub fn to_public_key(
@@ -299,7 +285,7 @@ impl PyDomainSeparationTag {
 }
 
 #[pyfunction]
-fn generate_keypair(message_count: usize) -> PyResult<(PyPublicKey, PySecretKey)> {
+fn new_keys(message_count: usize) -> PyResult<(PyPublicKey, PySecretKey)> {
     let (pk, sk) = Issuer::new_keys(message_count).map_err(|e| {
         // FIXME add custom exception type
         PyErr::new::<Exception, _>(format!("Error creating keypair: {}", e.to_string()))
@@ -307,8 +293,30 @@ fn generate_keypair(message_count: usize) -> PyResult<(PyPublicKey, PySecretKey)
     Ok((PyPublicKey::new(pk), PySecretKey::new(sk)))
 }
 
+#[pyfunction]
+fn new_short_keys(
+    py: Python,
+    seed: Option<&PyAny>,
+) -> PyResult<(PyDeterministicPublicKey, PySecretKey)> {
+    let key_gen = seed
+        .map(|seed| copy_buffer_arg(py, seed))
+        .transpose()?
+        .map(|seed| KeyGenOption::UseSeed(seed));
+    let (dpk, sk) = DeterministicPublicKey::new(key_gen);
+    Ok((PyDeterministicPublicKey::new(dpk), PySecretKey::new(sk)))
+}
+
+#[pyfunction]
+pub fn short_key_from_secret_key(key: PyRef<PySecretKey>) -> PyResult<PyDeterministicPublicKey> {
+    let sk = key.to_owned();
+    let (dpk, _sk) = DeterministicPublicKey::new(Some(KeyGenOption::FromSecretKey(sk)));
+    Ok(PyDeterministicPublicKey::new(dpk))
+}
+
 pub fn register(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_wrapped(wrap_pyfunction!(generate_keypair))?;
+    m.add_wrapped(wrap_pyfunction!(new_keys))?;
+    m.add_wrapped(wrap_pyfunction!(new_short_keys))?;
+    m.add_wrapped(wrap_pyfunction!(short_key_from_secret_key))?;
     m.add_class::<PyPublicKey>()?;
     m.add_class::<PyDeterministicPublicKey>()?;
     m.add_class::<PySecretKey>()?;
