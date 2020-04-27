@@ -21,6 +21,21 @@ def test_seed_short_keys():
     log("Public key:", pk.to_json())
 
 
+def test_pre_hashed():
+    pk, sk = bbs.new_keys(5)
+    log("Public key:", pk.to_json())
+
+    messages = [b"message 1", b"message 2", b"message 3", b"message 4", b"message 5"]
+
+    hashed_messages = [bbs.hash_message(m) for m in messages]
+    signature = bbs.sign_messages(hashed_messages, sk, pk, pre_hashed=True)
+    log("Signature:", signature)
+
+    log(
+        "Verify:", bbs.verify_signature(hashed_messages, signature, pk, pre_hashed=True)
+    )
+
+
 def test_signature():
     pk, sk = bbs.new_keys(5)
     log("Public key:", pk.to_json())
@@ -109,6 +124,8 @@ if __name__ == "__main__":
     test_seed_short_keys()
     print("---\n")
     test_signature()
+    print("---\n")
+    test_pre_hashed()
     print("---\n")
     test_blind_commitment()
     print("----\n")

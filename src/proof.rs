@@ -16,10 +16,10 @@ use super::helpers::{
     serialize_field_element, ExtractArg,
 };
 use super::keys::PyPublicKey;
-use super::signature::hash_message_arg;
+use super::signature::hashed_message_arg;
 
 #[pyfunction]
-/// create_proof(messages, reveal_indices, pk, signature, proof_nonce=None)
+/// create_proof(messages, reveal_indices, pk, signature, proof_nonce=None, pre_hashed=False)
 /// --
 ///
 ///
@@ -30,13 +30,14 @@ fn create_proof<'py>(
     pk: ExtractArg<PyPublicKey>,
     signature: &PyAny,
     proof_nonce: Option<&PyAny>,
+    pre_hashed: Option<bool>,
 ) -> PyResult<&'py PyBytes> {
     let proof_messages =
         messages
             .into_iter()
             .enumerate()
             .try_fold(vec![], |mut ms, (idx, elt)| {
-                let hash = hash_message_arg(py, elt)?;
+                let hash = hashed_message_arg(py, elt, pre_hashed)?;
                 let message = if reveal_indices.contains(&idx) {
                     ProofMessage::Revealed(hash)
                 } else {
@@ -73,7 +74,7 @@ fn generate_proof_nonce<'py>(py: Python<'py>) -> PyResult<&'py PyBytes> {
 }
 
 #[pyfunction]
-/// verify_signature_pok(messages, revealed_indices, pk, proof, proof_nonce=None)
+/// verify_signature_pok(messages, revealed_indices, pk, proof, proof_nonce=None, pre_hashed=False)
 /// --
 ///
 /// Verify a signature proof
@@ -84,6 +85,7 @@ fn verify_proof<'py>(
     pk: ExtractArg<PyPublicKey>,
     proof: &PyAny,
     proof_nonce: Option<&PyAny>,
+    pre_hashed: Option<bool>,
 ) -> PyResult<bool> {
     let proof_request = Verifier::new_proof_request(&revealed_indices, &pk).map_py_err()?;
     let proof: PoKOfSignatureProof = py_deserialize_compressed(py, &proof)?;
@@ -106,7 +108,7 @@ fn verify_proof<'py>(
                 if ms.contains_key(&rev_idx) {
                     return Err(ValueError::py_err("Duplicate revealed message index"));
                 }
-                ms.insert(rev_idx, hash_message_arg(py, elt)?);
+                ms.insert(rev_idx, hashed_message_arg(py, elt, pre_hashed)?);
                 PyResult::Ok(ms)
             })?;
     let signature_proof = SignatureProof {
