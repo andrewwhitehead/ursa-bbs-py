@@ -96,19 +96,11 @@ def test_zkp():
     verifier_nonce = bbs.generate_proof_nonce()
     log("Nonce:", verifier_nonce)
 
-    proof_request = bbs.create_proof_request([1, 3], pk)
-    log("Proof request:", proof_request)
-
-    pok = bbs.commit_signature_pok(messages, [1, 3], proof_request, signature)
-    log("PoK:", pok)
-
-    challenge = bbs.generate_challenge_pok([pok], verifier_nonce)
-    log("Challenge:", challenge)
-
-    proof = bbs.generate_signature_pok(pok, challenge)
+    proof = bbs.create_proof(messages, [1, 3], pk, signature, verifier_nonce)
     log("Proof:", proof)
 
-    log("Verify:", bbs.verify_signature_pok(proof_request, proof, verifier_nonce))
+    verify_messages = [messages[1], messages[3]]
+    log("Verify:", bbs.verify_proof(verify_messages, [1, 3], pk, proof, verifier_nonce))
 
 
 if __name__ == "__main__":

@@ -17,7 +17,8 @@ use bbs::prelude::{
 use super::buffer::{copy_buffer_arg, copy_buffer_opt_arg, create_safe_buffer, release_buffer};
 use super::error::PyBbsResult;
 use super::helpers::{
-    deserialize_field_element, deserialize_json_arg, serialize_json_to_bytes, ExtractArg, ParseArg,
+    deserialize_field_element, py_deserialize_compressed, py_deserialize_json, py_serialize_json,
+    serialize_compressed, ExtractArg, ParseArg,
 };
 
 #[pyclass(name=PublicKey)]
@@ -35,14 +36,14 @@ impl PyPublicKey {
 
     #[text_signature = "()"]
     pub fn to_json<'py>(slf: PyRef<Self>, py: Python<'py>) -> PyResult<&'py PyBytes> {
-        serialize_json_to_bytes(py, &slf.inner)
+        py_serialize_json(py, &slf.inner)
     }
 }
 
 #[pyproto]
 impl PyBufferProtocol for PyPublicKey {
     fn bf_getbuffer(slf: PyRefMut<Self>, view: *mut Py_buffer, flags: c_int) -> PyResult<()> {
-        let buf = serde_json::to_vec(&slf.inner).map_py_err()?;
+        let buf = serialize_compressed(&slf.inner)?;
         let py = unsafe { Python::assume_gil_acquired() };
         create_safe_buffer(py, buf, view, flags)
     }
@@ -79,7 +80,7 @@ impl ParseArg for PyPublicKey {
             let inst = <PyRef<Self> as FromPyObject<'py>>::extract(arg)?;
             Ok(ExtractArg::Ref(inst))
         } else {
-            deserialize_json_arg(py, arg).map(ExtractArg::Owned)
+            py_deserialize_compressed(py, arg).map(ExtractArg::Owned)
         }
     }
     fn to_ref<'py>(arg: &'py PyRef<Self>) -> &'py Self::Target {
@@ -118,7 +119,7 @@ impl PyDeterministicPublicKey {
 
     #[text_signature = "()"]
     pub fn to_json<'py>(slf: PyRef<Self>, py: Python<'py>) -> PyResult<&'py PyBytes> {
-        serialize_json_to_bytes(py, &slf.inner)
+        py_serialize_json(py, &slf.inner)
     }
 }
 
@@ -167,7 +168,7 @@ impl ParseArg for PyDeterministicPublicKey {
             let inst = <PyRef<Self> as FromPyObject<'py>>::extract(arg)?;
             Ok(ExtractArg::Ref(inst))
         } else {
-            deserialize_json_arg(py, arg).map(ExtractArg::Owned)
+            py_deserialize_json(py, arg).map(ExtractArg::Owned)
         }
     }
     fn to_ref<'py>(arg: &'py PyRef<Self>) -> &'py Self::Target {

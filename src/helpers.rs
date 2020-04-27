@@ -3,20 +3,52 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyString};
 use pyo3::PyClass;
 
-use bbs::prelude::{GroupElement, SignatureNonce};
+use bbs::prelude::{CompressedBytes, SignatureNonce};
 
 use super::buffer::map_buffer_arg;
 use super::error::PyBbsResult;
+use std::convert::TryFrom;
 
-pub fn serialize_json_to_bytes<'py, T>(py: Python<'py>, obj: &T) -> PyResult<&'py PyBytes>
+pub fn py_bytes<'py, T>(py: Python<'py>, obj: T) -> &'py PyBytes
+where
+    T: AsRef<[u8]>,
+{
+    PyBytes::new(py, obj.as_ref())
+}
+
+pub fn serialize_compressed<T>(obj: &T) -> PyResult<Vec<u8>>
+where
+    T: CompressedBytes,
+{
+    Ok(obj.to_compressed_bytes())
+}
+
+pub fn py_serialize_compressed<'py, T>(py: Python<'py>, obj: &T) -> PyResult<&'py PyBytes>
+where
+    T: CompressedBytes,
+{
+    Ok(py_bytes(py, serialize_compressed(obj)?))
+}
+
+pub fn py_deserialize_compressed<'py, T>(py: Python<'py>, arg: &PyAny) -> PyResult<T>
+where
+    T: CompressedBytes<Output = T>,
+    Result<T::Output, T::Error>: PyBbsResult<T::Output>,
+{
+    map_buffer_arg(py, arg, |bytes| {
+        T::from_compressed_bytes(bytes).map_py_err()
+    })
+}
+
+pub fn py_serialize_json<'py, T>(py: Python<'py>, obj: &T) -> PyResult<&'py PyBytes>
 where
     T: serde::ser::Serialize,
 {
     let result = serde_json::to_vec(obj).map_py_err()?;
-    Ok(PyBytes::new(py, &result))
+    Ok(py_bytes(py, result))
 }
 
-pub fn deserialize_json_arg<'py, T>(py: Python<'py>, arg: &PyAny) -> PyResult<T>
+pub fn py_deserialize_json<'py, T>(py: Python<'py>, arg: &PyAny) -> PyResult<T>
 where
     T: for<'a> serde::Deserialize<'a>,
 {
@@ -29,39 +61,15 @@ where
     }
 }
 
-pub fn serialize_field_element(val: SignatureNonce) -> PyResult<String> {
-    Ok(val.to_hex())
+pub fn serialize_field_element(val: SignatureNonce) -> PyResult<Vec<u8>> {
+    Ok(val.to_compressed_bytes().to_vec())
 }
 
 pub fn deserialize_field_element<'py>(py: Python<'py>, arg: &PyAny) -> PyResult<SignatureNonce> {
-    let strval = if let Ok(strval) = <PyString as PyTryFrom>::try_from(arg) {
-        strval.to_string()?.to_string()
-    } else {
-        map_buffer_arg(py, arg, |bytes| {
-            Ok(String::from_utf8_lossy(bytes).to_string())
-        })?
-    };
-    SignatureNonce::from_hex(strval)
-        .map_err(|e| ValueError::py_err(format!("Invalid JSON input: {}", e.to_string())))
-}
-
-pub fn serialize_group_element<T: GroupElement>(val: T) -> PyResult<String> {
-    Ok(val.to_hex())
-}
-
-pub fn deserialize_group_element<'py, T: GroupElement>(
-    py: Python<'py>,
-    arg: &PyAny,
-) -> PyResult<T> {
-    let strval = if let Ok(strval) = <PyString as PyTryFrom>::try_from(arg) {
-        strval.to_string()?.to_string()
-    } else {
-        map_buffer_arg(py, arg, |bytes| {
-            Ok(String::from_utf8_lossy(bytes).to_string())
-        })?
-    };
-    T::from_hex(strval)
-        .map_err(|e| ValueError::py_err(format!("Invalid JSON input: {}", e.to_string())))
+    map_buffer_arg(py, arg, |bytes| {
+        SignatureNonce::try_from(bytes)
+            .map_err(|e| ValueError::py_err(format!("Invalid field element: {}", e.to_string())))
+    })
 }
 
 pub trait ParseArg: PyClass {
