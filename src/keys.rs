@@ -1,24 +1,22 @@
-use std::os::raw::c_int;
-
-use pyo3::class::{PyBufferProtocol, PyObjectProtocol};
-use pyo3::exceptions::ValueError;
-use pyo3::ffi::Py_buffer;
-use pyo3::prelude::*;
-use pyo3::types::PyBytes;
-use pyo3::{wrap_pyfunction, PyRefMut, PyTypeInfo};
-
-use zeroize::Zeroize;
-
 use bbs::prelude::{
     DeterministicPublicKey, DomainSeparationTag, Issuer, KeyGenOption, PublicKey, SecretKey,
     SECRET_KEY_SIZE,
 };
 
+use pyo3::class::{PyBufferProtocol, PyObjectProtocol};
+use pyo3::exceptions::ValueError;
+use pyo3::ffi::Py_buffer;
+use pyo3::prelude::*;
+use pyo3::{wrap_pyfunction, PyRefMut, PyTypeInfo};
+
+use std::os::raw::c_int;
+
+use zeroize::Zeroize;
+
 use super::buffer::{copy_buffer_arg, copy_buffer_opt_arg, create_safe_buffer, release_buffer};
 use super::error::PyBbsResult;
 use super::helpers::{
-    deserialize_field_element, py_deserialize_compressed, py_deserialize_json, py_serialize_json,
-    serialize_compressed, ExtractArg, ParseArg,
+    deserialize_field_element, py_deserialize_json, py_serialize_json, ExtractArg, ParseArg,
 };
 
 #[pyclass(name=PublicKey)]
@@ -26,70 +24,7 @@ pub struct PyPublicKey {
     inner: PublicKey,
 }
 
-#[pymethods]
-impl PyPublicKey {
-    #[new]
-    fn ctor(py: Python, data: &PyAny) -> PyResult<Self> {
-        let inner = <Self as ParseArg>::parse_arg(py, data)?.into_owned();
-        Ok(Self::new(inner))
-    }
-
-    #[text_signature = "()"]
-    pub fn to_json<'py>(slf: PyRef<Self>, py: Python<'py>) -> PyResult<&'py PyBytes> {
-        py_serialize_json(py, &slf.inner)
-    }
-}
-
-#[pyproto]
-impl PyBufferProtocol for PyPublicKey {
-    fn bf_getbuffer(slf: PyRefMut<Self>, view: *mut Py_buffer, flags: c_int) -> PyResult<()> {
-        let buf = serialize_compressed(&slf.inner)?;
-        let py = unsafe { Python::assume_gil_acquired() };
-        create_safe_buffer(py, buf, view, flags)
-    }
-
-    fn bf_releasebuffer(_slf: PyRefMut<Self>, view: *mut Py_buffer) -> PyResult<()> {
-        release_buffer(view)
-    }
-}
-
-#[pyproto]
-impl PyObjectProtocol for PyPublicKey {
-    fn __repr__(&self) -> PyResult<String> {
-        Ok(format!("PublicKey({:p})", self))
-    }
-}
-
-impl PyPublicKey {
-    pub fn new(inner: PublicKey) -> Self {
-        Self { inner }
-    }
-}
-
-impl std::ops::Deref for PyPublicKey {
-    type Target = PublicKey;
-    fn deref(&self) -> &PublicKey {
-        &self.inner
-    }
-}
-
-impl ParseArg for PyPublicKey {
-    type Target = PublicKey;
-    fn parse_arg<'py>(py: Python<'py>, arg: &'py PyAny) -> PyResult<ExtractArg<'py, Self>> {
-        if <Self as PyTypeInfo>::is_instance(arg) {
-            let inst = <PyRef<Self> as FromPyObject<'py>>::extract(arg)?;
-            Ok(ExtractArg::Ref(inst))
-        } else {
-            py_deserialize_compressed(py, arg).map(ExtractArg::Owned)
-        }
-    }
-    fn to_ref<'py>(arg: &'py PyRef<Self>) -> &'py Self::Target {
-        &arg.inner
-    }
-    fn to_owned(arg: PyRef<Self>) -> Self::Target {
-        arg.inner.to_owned()
-    }
-}
+py_compressed_bytes_wrapper!(PyPublicKey, PublicKey);
 
 #[pyclass(name=DeterministicPublicKey)]
 pub struct PyDeterministicPublicKey {
@@ -118,8 +53,8 @@ impl PyDeterministicPublicKey {
     }
 
     #[text_signature = "()"]
-    pub fn to_json<'py>(slf: PyRef<Self>, py: Python<'py>) -> PyResult<&'py PyBytes> {
-        py_serialize_json(py, &slf.inner)
+    pub fn to_json(slf: PyRef<Self>) -> PyResult<String> {
+        py_serialize_json(&slf.inner)
     }
 }
 

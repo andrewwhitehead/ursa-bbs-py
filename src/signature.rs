@@ -1,14 +1,16 @@
-use pyo3::exceptions::ValueError;
-use pyo3::prelude::*;
-use pyo3::types::PyBytes;
-use pyo3::wrap_pyfunction;
-
 use bbs::prelude::{
     BlindSignature, BlindSignatureContext, BlindedSignatureCommitment, Issuer, Prover, Signature,
     SignatureBlinding, SignatureMessage, SignatureNonce, MESSAGE_SIZE,
 };
 
+use pyo3::exceptions::ValueError;
+use pyo3::ffi::Py_buffer;
+use pyo3::prelude::*;
+use pyo3::types::PyBytes;
+use pyo3::wrap_pyfunction;
+
 use std::collections::BTreeMap;
+use std::os::raw::c_int;
 
 use super::buffer::map_buffer_arg;
 use super::error::PyBbsResult;
@@ -17,6 +19,20 @@ use super::helpers::{
     serialize_field_element, ExtractArg,
 };
 use super::keys::{PyPublicKey, PySecretKey};
+
+#[pyclass(name=BlindSignature)]
+pub struct PyBlindSignature {
+    inner: BlindSignature,
+}
+
+py_compressed_bytes_wrapper!(PyBlindSignature, BlindSignature);
+
+#[pyclass(name=Signature)]
+pub struct PySignature {
+    inner: Signature,
+}
+
+py_compressed_bytes_wrapper!(PySignature, Signature);
 
 pub fn hashed_message_arg(
     py: Python,
@@ -127,10 +143,10 @@ fn sign_messages<'py>(
     sk: ExtractArg<PySecretKey>,
     pk: ExtractArg<PyPublicKey>,
     pre_hashed: Option<bool>,
-) -> PyResult<&'py PyBytes> {
+) -> PyResult<PySignature> {
     let messages = hashed_message_vec(py, messages, pre_hashed)?;
     let signature = Signature::new(messages.as_slice(), &*sk, &pk).map_py_err()?;
-    py_serialize_compressed(py, &signature)
+    Ok(PySignature::new(signature))
 }
 
 #[pyfunction]
@@ -145,7 +161,7 @@ fn sign_messages_blinded_commitment<'py>(
     pk: ExtractArg<PyPublicKey>,
     commitment: &PyAny,
     pre_hashed: Option<bool>,
-) -> PyResult<&'py PyBytes> {
+) -> PyResult<PyBlindSignature> {
     let messages = hashed_message_btree(py, messages, pre_hashed)?;
     let commitment = map_buffer_arg(py, commitment, |bytes| {
         if bytes.len() != MESSAGE_SIZE {
@@ -160,7 +176,7 @@ fn sign_messages_blinded_commitment<'py>(
         Ok(BlindedSignatureCommitment::from(deser))
     })?;
     let blind_signature = BlindSignature::new(&commitment, &messages, &sk, &pk).map_py_err()?;
-    py_serialize_compressed(py, &blind_signature)
+    Ok(PyBlindSignature::new(blind_signature))
 }
 
 #[pyfunction]
@@ -176,13 +192,13 @@ fn sign_messages_blinded_context<'py>(
     context: &PyAny,
     signing_nonce: &PyAny,
     pre_hashed: Option<bool>,
-) -> PyResult<&'py PyBytes> {
+) -> PyResult<PyBlindSignature> {
     let messages = hashed_message_btree(py, messages, pre_hashed)?;
     let context: BlindSignatureContext = py_deserialize_compressed(py, context)?;
     let signing_nonce: SignatureNonce = deserialize_field_element(py, &signing_nonce)?;
     let blind_signature =
         Issuer::blind_sign(&context, &messages, &sk, &pk, &signing_nonce).map_py_err()?;
-    py_serialize_compressed(py, &blind_signature)
+    Ok(PyBlindSignature::new(blind_signature))
 }
 
 #[pyfunction]
@@ -192,13 +208,12 @@ fn sign_messages_blinded_context<'py>(
 ///
 fn unblind_signature<'py>(
     py: Python<'py>,
-    signature: &PyAny,
+    signature: ExtractArg<PyBlindSignature>,
     blinding: &PyAny,
-) -> PyResult<&'py PyBytes> {
-    let signature: BlindSignature = py_deserialize_compressed(py, &signature)?;
+) -> PyResult<PySignature> {
     let blinding: SignatureBlinding = deserialize_field_element(py, &blinding)?;
     let unblinded = signature.to_unblinded(&blinding);
-    py_serialize_compressed(py, &unblinded)
+    Ok(PySignature::new(unblinded))
 }
 
 #[pyfunction]
@@ -209,12 +224,11 @@ fn unblind_signature<'py>(
 fn verify_signature<'py>(
     py: Python<'py>,
     messages: Vec<&PyAny>,
-    signature: &PyAny,
+    signature: ExtractArg<PySignature>,
     pk: ExtractArg<PyPublicKey>,
     pre_hashed: Option<bool>,
 ) -> PyResult<bool> {
     let messages = hashed_message_vec(py, messages, pre_hashed)?;
-    let signature: Signature = py_deserialize_compressed(py, &signature)?;
     signature.verify(messages.as_slice(), &pk).map_py_err()
 }
 
@@ -228,5 +242,7 @@ pub fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(sign_messages_blinded_context))?;
     m.add_wrapped(wrap_pyfunction!(unblind_signature))?;
     m.add_wrapped(wrap_pyfunction!(verify_signature))?;
+    m.add_class::<PyBlindSignature>()?;
+    m.add_class::<PySignature>()?;
     Ok(())
 }

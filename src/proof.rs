@@ -1,22 +1,28 @@
 use pyo3::exceptions::ValueError;
+use pyo3::ffi::Py_buffer;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use pyo3::wrap_pyfunction;
 
 use bbs::prelude::{
-    HiddenMessage, PoKOfSignatureProof, ProofMessage, Prover, Signature, SignatureNonce,
-    SignatureProof, Verifier,
+    HiddenMessage, PoKOfSignatureProof, ProofMessage, Prover, SignatureNonce, SignatureProof,
+    Verifier,
 };
 
 use std::collections::BTreeMap;
+use std::os::raw::c_int;
 
 use super::error::PyBbsResult;
-use super::helpers::{
-    deserialize_field_element, py_bytes, py_deserialize_compressed, py_serialize_compressed,
-    serialize_field_element, ExtractArg,
-};
+use super::helpers::{deserialize_field_element, py_bytes, serialize_field_element, ExtractArg};
 use super::keys::PyPublicKey;
-use super::signature::hashed_message_arg;
+use super::signature::{hashed_message_arg, PySignature};
+
+#[pyclass(name=Proof)]
+pub struct PyProof {
+    inner: PoKOfSignatureProof,
+}
+
+py_compressed_bytes_wrapper!(PyProof, PoKOfSignatureProof);
 
 #[pyfunction]
 /// create_proof(messages, reveal_indices, pk, signature, proof_nonce=None, pre_hashed=False)
@@ -28,10 +34,10 @@ fn create_proof<'py>(
     messages: Vec<&PyAny>,
     reveal_indices: Vec<usize>,
     pk: ExtractArg<PyPublicKey>,
-    signature: &PyAny,
+    signature: ExtractArg<PySignature>,
     proof_nonce: Option<&PyAny>,
     pre_hashed: Option<bool>,
-) -> PyResult<&'py PyBytes> {
+) -> PyResult<PyProof> {
     let proof_messages =
         messages
             .into_iter()
@@ -47,7 +53,6 @@ fn create_proof<'py>(
                 PyResult::Ok(ms)
             })?;
     let proof_request = Verifier::new_proof_request(&reveal_indices, &pk).map_py_err()?;
-    let signature: Signature = py_deserialize_compressed(py, &signature)?;
     let pok = Prover::commit_signature_pok(&proof_request, proof_messages.as_slice(), &signature)
         .map_py_err()?;
     let mut challenge_bytes = vec![];
@@ -60,7 +65,7 @@ fn create_proof<'py>(
     challenge_bytes.extend_from_slice(&proof_nonce.to_bytes());
     let challenge = SignatureNonce::from_msg_hash(&challenge_bytes);
     let proof = pok.gen_proof(&challenge).map_py_err()?;
-    py_serialize_compressed(py, &proof)
+    Ok(PyProof::new(proof))
 }
 
 #[pyfunction]
@@ -83,12 +88,11 @@ fn verify_proof<'py>(
     messages: Vec<&PyAny>,
     revealed_indices: Vec<usize>,
     pk: ExtractArg<PyPublicKey>,
-    proof: &PyAny,
+    proof: ExtractArg<PyProof>,
     proof_nonce: Option<&PyAny>,
     pre_hashed: Option<bool>,
 ) -> PyResult<bool> {
     let proof_request = Verifier::new_proof_request(&revealed_indices, &pk).map_py_err()?;
-    let proof: PoKOfSignatureProof = py_deserialize_compressed(py, &proof)?;
     let proof_nonce = if let Some(proof_nonce) = proof_nonce {
         deserialize_field_element(py, &proof_nonce)?
     } else {
@@ -113,7 +117,7 @@ fn verify_proof<'py>(
             })?;
     let signature_proof = SignatureProof {
         revealed_messages,
-        proof,
+        proof: proof.into_owned(),
     };
     match Verifier::verify_signature_pok(&proof_request, &signature_proof, &proof_nonce) {
         Ok(_) => Ok(true),
@@ -125,5 +129,6 @@ pub fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(create_proof))?;
     m.add_wrapped(wrap_pyfunction!(generate_proof_nonce))?;
     m.add_wrapped(wrap_pyfunction!(verify_proof))?;
+    m.add_class::<PyProof>()?;
     Ok(())
 }

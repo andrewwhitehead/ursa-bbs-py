@@ -40,12 +40,12 @@ where
     })
 }
 
-pub fn py_serialize_json<'py, T>(py: Python<'py>, obj: &T) -> PyResult<&'py PyBytes>
+pub fn py_serialize_json<T>(obj: &T) -> PyResult<String>
 where
     T: serde::ser::Serialize,
 {
-    let result = serde_json::to_vec(obj).map_py_err()?;
-    Ok(py_bytes(py, result))
+    let result = serde_json::to_string(obj).map_py_err()?;
+    Ok(result)
 }
 
 pub fn py_deserialize_json<'py, T>(py: Python<'py>, arg: &PyAny) -> PyResult<T>

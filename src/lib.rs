@@ -1,5 +1,8 @@
 use pyo3::prelude::*;
 
+#[macro_use]
+mod macros;
+
 mod buffer;
 mod error;
 mod helpers;

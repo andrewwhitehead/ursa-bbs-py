@@ -10,7 +10,7 @@ def test_random_short_keys():
     dpk, sk = bbs.new_short_keys()
     dst = bbs.DomainSeparationTag(b"testgen", None, None, None)
     pk = dpk.to_public_key(5, dst)
-    log("Public key:", pk.to_json())
+    log("Public key:", pk, pk.to_json())
     log("Secret key:", sk, bytes(sk))
 
 
@@ -18,7 +18,7 @@ def test_seed_short_keys():
     dpk, sk = bbs.new_short_keys(seed=b"seed00001")
     dst = bbs.DomainSeparationTag(b"testgen", None, None, None)
     pk = dpk.to_public_key(5, dst)
-    log("Public key:", pk.to_json())
+    log("Public key:", pk, pk.to_json())
 
 
 def test_pre_hashed():
@@ -29,7 +29,7 @@ def test_pre_hashed():
 
     hashed_messages = [bbs.hash_message(m) for m in messages]
     signature = bbs.sign_messages(hashed_messages, sk, pk, pre_hashed=True)
-    log("Signature:", signature)
+    log("Signature:", signature.to_json())
 
     log(
         "Verify:", bbs.verify_signature(hashed_messages, signature, pk, pre_hashed=True)
@@ -43,7 +43,7 @@ def test_signature():
     messages = [b"message 1", b"message 2", b"message 3", b"message 4", b"message 5"]
 
     signature = bbs.sign_messages(messages, sk, pk)
-    log("Signature:", signature)
+    log("Signature:", signature.to_json())
 
     log("Verify:", bbs.verify_signature(messages, signature, pk))
 
@@ -55,16 +55,16 @@ def test_blind_commitment():
     commit_message = b"message_0"
 
     signature_blinding, commitment = bbs.create_blinding_commitment(commit_message, pk)
-    log("Blinding:", signature_blinding)
-    log("Commitment:", commitment)
+    log("Blinding:", signature_blinding.hex().upper())
+    log("Commitment:", commitment.hex().upper())
 
     messages = {1: b"message_1", 2: b"message_2", 3: b"message_3", 4: b"message_4"}
 
     blind_signature = bbs.sign_messages_blinded_commitment(messages, sk, pk, commitment)
-    log("Blind signature:", blind_signature)
+    log("Blind signature:", blind_signature.to_json())
 
     signature = bbs.unblind_signature(blind_signature, signature_blinding)
-    log("Signature:", signature)
+    log("Unblinded signature:", signature.to_json())
 
     all_messages = [commit_message] + [messages[i] for i in range(1, 5)]
     log("Verify:", bbs.verify_signature(all_messages, signature, pk))
@@ -75,25 +75,25 @@ def test_blind_context():
     log("Public key:", pk.to_json())
 
     signing_nonce = bbs.generate_signing_nonce()
-    log("Signing nonce:", signing_nonce)
+    # log("Signing nonce:", signing_nonce.hex().upper())
 
     link_secret = b"secret"
     context_messages = {0: link_secret}
     signature_blinding, context = bbs.create_blinding_context(
         context_messages, pk, signing_nonce
     )
-    log("Blinding:", signature_blinding)
-    log("Context:", context)
+    log("Blinding:", signature_blinding.hex().upper())
+    log("Context:", context.hex().upper())
 
     messages = {1: b"message_1", 2: b"message_2", 3: b"message_3", 4: b"message_4"}
 
     blind_signature = bbs.sign_messages_blinded_context(
         messages, sk, pk, context, signing_nonce
     )
-    log("Blind signature:", blind_signature)
+    log("Blind signature:", blind_signature.to_json())
 
     signature = bbs.unblind_signature(blind_signature, signature_blinding)
-    log("Signature:", signature)
+    log("Unblinded signature:", signature.to_json())
 
     all_messages = [link_secret] + [messages[i] for i in range(1, 5)]
     log("Verify:", bbs.verify_signature(all_messages, signature, pk))
@@ -106,13 +106,13 @@ def test_zkp():
     messages = [b"message_1", b"message_2", b"message_3", b"message_4", b"message_5"]
 
     signature = bbs.sign_messages(messages, sk, pk)
-    log("Signature:", signature)
+    log("Signature:", signature.to_json())
 
     verifier_nonce = bbs.generate_proof_nonce()
-    log("Nonce:", verifier_nonce)
+    # log("Verifier nonce:", verifier_nonce.hex().upper())
 
     proof = bbs.create_proof(messages, [1, 3], pk, signature, verifier_nonce)
-    log("Proof:", proof)
+    log("Proof:", proof.to_json())
 
     verify_messages = [messages[1], messages[3]]
     log("Verify:", bbs.verify_proof(verify_messages, [1, 3], pk, proof, verifier_nonce))
