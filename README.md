@@ -9,3 +9,10 @@ cargo build
 cp target/debug/{libursa_bbs.dylib,libursa_bbs.so,ursa_bbs.dll} ursa_bbs.so
 python test.py
 ```
+
+Python wheel packages can be built as follows:
+
+```sh
+pip install maturin
+maturin build
+```
