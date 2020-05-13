@@ -12,8 +12,8 @@ macro_rules! py_compressed_bytes_wrapper {
             pub fn to_bytes<'py>(
                 slf: pyo3::PyRef<Self>,
                 py: Python<'py>,
-            ) -> PyResult<&'py pyo3::types::PyBytes> {
-                $crate::helpers::py_serialize_compressed(py, &slf.inner)
+            ) -> &'py pyo3::types::PyBytes {
+                $crate::helpers::py_bytes(py, slf.inner.to_bytes_compressed_form().to_vec())
             }
 
             #[text_signature = "()"]
@@ -29,7 +29,7 @@ macro_rules! py_compressed_bytes_wrapper {
                 view: *mut Py_buffer,
                 flags: c_int,
             ) -> PyResult<()> {
-                let buf = $crate::helpers::serialize_compressed(&slf.inner)?;
+                let buf = slf.inner.to_bytes_compressed_form().to_vec();
                 let py = unsafe { pyo3::Python::assume_gil_acquired() };
                 $crate::buffer::create_safe_buffer(py, buf, view, flags)
             }
@@ -72,7 +72,7 @@ macro_rules! py_compressed_bytes_wrapper {
                     let inst = <pyo3::PyRef<Self> as pyo3::FromPyObject<'py>>::extract(arg)?;
                     Ok($crate::helpers::ExtractArg::Ref(inst))
                 } else {
-                    $crate::helpers::py_deserialize_compressed(py, arg)
+                    $crate::helpers::py_deserialize_try_from(py, arg)
                         .map($crate::helpers::ExtractArg::Owned)
                 }
             }

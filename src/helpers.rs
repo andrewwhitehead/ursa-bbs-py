@@ -3,7 +3,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyString};
 use pyo3::PyClass;
 
-use bbs::prelude::{CompressedForm, SignatureNonce};
+use bbs::prelude::ToVariableLengthBytes;
 
 use super::buffer::map_buffer_arg;
 use super::error::PyBbsResult;
@@ -18,21 +18,21 @@ where
 
 pub fn serialize_compressed<T>(obj: &T) -> PyResult<Vec<u8>>
 where
-    T: CompressedForm,
+    T: ToVariableLengthBytes,
 {
     Ok(obj.to_bytes_compressed_form())
 }
 
 pub fn py_serialize_compressed<'py, T>(py: Python<'py>, obj: &T) -> PyResult<&'py PyBytes>
 where
-    T: CompressedForm,
+    T: ToVariableLengthBytes,
 {
     Ok(py_bytes(py, serialize_compressed(obj)?))
 }
 
 pub fn py_deserialize_compressed<'py, T>(py: Python<'py>, arg: &PyAny) -> PyResult<T>
 where
-    T: CompressedForm<Output = T>,
+    T: ToVariableLengthBytes<Output = T>,
     Result<T::Output, T::Error>: PyBbsResult<T::Output>,
 {
     map_buffer_arg(py, arg, |bytes| {
@@ -61,13 +61,19 @@ where
     }
 }
 
-pub fn serialize_field_element(val: SignatureNonce) -> PyResult<Vec<u8>> {
+/*
+pub fn serialize_field_element(val: ProofNonce) -> PyResult<Vec<u8>> {
     Ok(val.to_compressed_bytes().to_vec())
 }
+*/
 
-pub fn deserialize_field_element<'py>(py: Python<'py>, arg: &PyAny) -> PyResult<SignatureNonce> {
+pub fn py_deserialize_try_from<'py, 'a, T>(py: Python<'py>, arg: &PyAny) -> PyResult<T>
+where
+    T: TryFrom<&'a [u8]>,
+    T::Error: ToString,
+{
     map_buffer_arg(py, arg, |bytes| {
-        SignatureNonce::try_from(bytes)
+        T::try_from(bytes)
             .map_err(|e| ValueError::py_err(format!("Invalid field element: {}", e.to_string())))
     })
 }

@@ -5,15 +5,15 @@ use pyo3::types::PyBytes;
 use pyo3::wrap_pyfunction;
 
 use bbs::prelude::{
-    HiddenMessage, PoKOfSignatureProof, ProofMessage, Prover, SignatureNonce, SignatureProof,
-    Verifier,
+    HashElem, HiddenMessage, PoKOfSignatureProof, ProofChallenge, ProofMessage, ProofNonce, Prover,
+    RandomElem, SignatureProof, ToVariableLengthBytes, Verifier,
 };
 
 use std::collections::BTreeMap;
 use std::os::raw::c_int;
 
 use super::error::PyBbsResult;
-use super::helpers::{deserialize_field_element, py_bytes, serialize_field_element, ExtractArg};
+use super::helpers::{py_bytes, py_deserialize_try_from, ExtractArg};
 use super::keys::PyPublicKey;
 use super::signature::{hashed_message_arg, PySignature};
 
@@ -58,12 +58,12 @@ fn create_proof<'py>(
     let mut challenge_bytes = vec![];
     challenge_bytes.extend_from_slice(&pok.to_bytes());
     let proof_nonce = if let Some(proof_nonce) = proof_nonce {
-        deserialize_field_element(py, &proof_nonce)?
+        py_deserialize_try_from(py, &proof_nonce)?
     } else {
-        SignatureNonce::new()
+        ProofNonce::random()
     };
-    challenge_bytes.extend_from_slice(&proof_nonce.to_bytes());
-    let challenge = SignatureNonce::from_msg_hash(&challenge_bytes);
+    challenge_bytes.extend_from_slice(&proof_nonce.to_bytes_compressed_form());
+    let challenge = ProofChallenge::hash(&challenge_bytes);
     let proof = pok.gen_proof(&challenge).map_py_err()?;
     Ok(PyProof::new(proof))
 }
@@ -74,8 +74,8 @@ fn create_proof<'py>(
 ///
 /// Generate a new nonce for sending to a prover
 fn generate_proof_nonce<'py>(py: Python<'py>) -> PyResult<&'py PyBytes> {
-    let nonce = Verifier::generate_proof_nonce();
-    Ok(py_bytes(py, serialize_field_element(nonce)?))
+    let nonce = ProofNonce::random();
+    Ok(py_bytes(py, nonce.to_bytes_compressed_form()))
 }
 
 #[pyfunction]
@@ -94,9 +94,9 @@ fn verify_proof<'py>(
 ) -> PyResult<bool> {
     let proof_request = Verifier::new_proof_request(&revealed_indices, &pk).map_py_err()?;
     let proof_nonce = if let Some(proof_nonce) = proof_nonce {
-        deserialize_field_element(py, &proof_nonce)?
+        py_deserialize_try_from(py, &proof_nonce)?
     } else {
-        SignatureNonce::new()
+        ProofNonce::random()
     };
     if revealed_indices.len() > messages.len() {
         return Err(ValueError::py_err(

@@ -15,13 +15,13 @@ pub fn copy_buffer_arg(py: Python, data: &PyAny) -> PyResult<Vec<u8>> {
     buffer.to_vec(py)
 }
 
-pub fn copy_buffer_opt_arg(py: Python, arg: Option<&PyAny>) -> PyResult<Option<Vec<u8>>> {
-    arg.map(|buf| copy_buffer_arg(py, buf)).transpose()
-}
+// pub fn copy_buffer_opt_arg(py: Python, arg: Option<&PyAny>) -> PyResult<Option<Vec<u8>>> {
+//     arg.map(|buf| copy_buffer_arg(py, buf)).transpose()
+// }
 
-pub fn map_buffer_arg<T, F>(py: Python, data: &PyAny, map_fn: F) -> PyResult<T>
+pub fn map_buffer_arg<'a, T, F>(py: Python, data: &PyAny, map_fn: F) -> PyResult<T>
 where
-    F: FnOnce(&[u8]) -> PyResult<T>,
+    F: FnOnce(&'a [u8]) -> PyResult<T>,
 {
     let buffer = PyBuffer::get(py, data)?;
     let data =

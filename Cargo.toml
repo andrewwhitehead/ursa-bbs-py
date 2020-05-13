@@ -23,7 +23,8 @@ default = ["extension-module"]
 extension-module = ["pyo3/extension-module"]
 
 [dependencies]
-bbs = { git = "https://github.com/andrewwhitehead/ursa", branch = "test/compressed" }
+bbs = { git = "https://github.com/mikelodder7/ursa", rev = "d3a513c994bcb666b0e8453750e8d3813a98e4e4" }
+hex = "0.4"
 # use 0.10.0 when released:
 pyo3 = { git = "https://github.com/PyO3/pyo3", rev = "c2b173a14f217506382a9975f1a3bc1e1c451893" }
 serde = "1.0.99"

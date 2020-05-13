@@ -1,9 +1,8 @@
 use bbs::prelude::{
-    BlindSignature, BlindSignatureContext, BlindedSignatureCommitment, Issuer, Prover, Signature,
-    SignatureBlinding, SignatureMessage, SignatureNonce, MESSAGE_SIZE,
+    BlindSignature, BlindSignatureContext, HashElem, Issuer, ProofNonce, Prover, Signature,
+    SignatureBlinding, SignatureMessage,
 };
 
-use pyo3::exceptions::ValueError;
 use pyo3::ffi::Py_buffer;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -15,10 +14,12 @@ use std::os::raw::c_int;
 use super::buffer::map_buffer_arg;
 use super::error::PyBbsResult;
 use super::helpers::{
-    deserialize_field_element, py_bytes, py_deserialize_compressed, py_serialize_compressed,
-    serialize_field_element, ExtractArg,
+    py_bytes, py_deserialize_compressed, py_deserialize_try_from, py_serialize_compressed,
+    ExtractArg,
 };
-use super::keys::{PyPublicKey, PySecretKey};
+use super::keys::{PyBlsSecretKey, PyPublicKey};
+
+pub const DEFAULT_NONCE: &'static [u8] = b"bbs+pythonwrapper";
 
 #[pyclass(name=BlindSignature)]
 pub struct PyBlindSignature {
@@ -41,9 +42,9 @@ pub fn hashed_message_arg(
 ) -> PyResult<SignatureMessage> {
     let pre_hashed = pre_hashed.unwrap_or(false);
     if pre_hashed {
-        deserialize_field_element(py, arg)
+        py_deserialize_try_from(py, arg)
     } else {
-        map_buffer_arg(py, arg, |data| Ok(SignatureMessage::from_msg_hash(data)))
+        map_buffer_arg(py, arg, |data| Ok(SignatureMessage::hash(data)))
     }
 }
 
@@ -72,26 +73,7 @@ pub fn hashed_message_btree(
 }
 
 #[pyfunction]
-/// create_blinding_commitment(message, pk)
-/// --
-///
-///
-fn create_blinding_commitment<'py>(
-    py: Python<'py>,
-    message: &PyAny,
-    pk: ExtractArg<PyPublicKey>,
-) -> PyResult<(&'py PyBytes, &'py PyBytes)> {
-    let message = hashed_message_arg(py, message, None)?;
-    let signature_blinding = Signature::generate_blinding();
-    let commitment: BlindedSignatureCommitment = &pk.h[0] * &message + &pk.h0 * &signature_blinding;
-    Ok((
-        py_bytes(py, serialize_field_element(signature_blinding)?),
-        py_bytes(py, commitment.to_compressed_bytes().to_vec()),
-    ))
-}
-
-#[pyfunction]
-/// create_blinding_context(messages, pk, signing_nonce, pre_hashed=False)
+/// create_blinding_context(messages, pk, signing_nonce=None, pre_hashed=False)
 /// --
 ///
 ///
@@ -99,15 +81,17 @@ fn create_blinding_context<'py>(
     py: Python<'py>,
     messages: BTreeMap<usize, &PyAny>,
     pk: ExtractArg<PyPublicKey>,
-    signing_nonce: &PyAny,
+    signing_nonce: Option<&PyAny>,
     pre_hashed: Option<bool>,
 ) -> PyResult<(&'py PyBytes, &'py PyBytes)> {
     let messages = hashed_message_btree(py, messages, pre_hashed)?;
-    let signing_nonce: SignatureNonce = deserialize_field_element(py, &signing_nonce)?;
+    let signing_nonce: ProofNonce = signing_nonce
+        .map(|nonce| py_deserialize_try_from(py, nonce))
+        .unwrap_or_else(|| Ok(ProofNonce::hash(DEFAULT_NONCE)))?;
     let (ctx, blinding) =
         Prover::new_blind_signature_context(&pk, &messages, &signing_nonce).map_py_err()?;
     Ok((
-        py_bytes(py, serialize_field_element(blinding)?),
+        py_bytes(py, blinding.to_bytes_compressed_form()),
         py_serialize_compressed(py, &ctx)?,
     ))
 }
@@ -119,7 +103,7 @@ fn create_blinding_context<'py>(
 /// Generate a new nonce for use in creating a blind signature
 fn generate_signing_nonce<'py>(py: Python<'py>) -> PyResult<&'py PyBytes> {
     let nonce = Issuer::generate_signing_nonce();
-    Ok(py_bytes(py, serialize_field_element(nonce)?))
+    Ok(py_bytes(py, nonce.to_bytes_compressed_form()))
 }
 
 #[pyfunction]
@@ -129,7 +113,7 @@ fn generate_signing_nonce<'py>(py: Python<'py>) -> PyResult<&'py PyBytes> {
 /// Create a standard hash for a message to be signed
 fn hash_message<'py>(py: Python<'py>, message: &PyAny) -> PyResult<&'py PyBytes> {
     let message = hashed_message_arg(py, message, None)?;
-    Ok(py_bytes(py, serialize_field_element(message)?))
+    Ok(py_bytes(py, message.to_bytes_compressed_form()))
 }
 
 #[pyfunction]
@@ -140,64 +124,44 @@ fn hash_message<'py>(py: Python<'py>, message: &PyAny) -> PyResult<&'py PyBytes>
 fn sign_messages<'py>(
     py: Python<'py>,
     messages: Vec<&PyAny>,
-    sk: ExtractArg<PySecretKey>,
+    sk: ExtractArg<PyBlsSecretKey>,
     pk: ExtractArg<PyPublicKey>,
     pre_hashed: Option<bool>,
 ) -> PyResult<PySignature> {
+    let sk = sk.into_owned();
+    let pk = pk.into_owned();
+    // FIXME message hashing is happening on the main thread
     let messages = hashed_message_vec(py, messages, pre_hashed)?;
-    let signature = Signature::new(messages.as_slice(), &*sk, &pk).map_py_err()?;
+    let signature = py
+        .allow_threads(|| Signature::new(messages.as_slice(), &sk, &pk))
+        .map_py_err()?;
     Ok(PySignature::new(signature))
 }
 
 #[pyfunction]
-/// sign_messages_blinded_commitment(messages, sk, pk, commitment, pre_hashed=False)
-/// --
-///
-///
-fn sign_messages_blinded_commitment<'py>(
-    py: Python<'py>,
-    messages: BTreeMap<usize, &PyAny>,
-    sk: ExtractArg<PySecretKey>,
-    pk: ExtractArg<PyPublicKey>,
-    commitment: &PyAny,
-    pre_hashed: Option<bool>,
-) -> PyResult<PyBlindSignature> {
-    let messages = hashed_message_btree(py, messages, pre_hashed)?;
-    let commitment = map_buffer_arg(py, commitment, |bytes| {
-        if bytes.len() != MESSAGE_SIZE {
-            return Err(ValueError::py_err(format!(
-                "Invalid commitment value: expected {} bytes, got {}",
-                MESSAGE_SIZE,
-                bytes.len()
-            )));
-        }
-        let mut deser = [0u8; MESSAGE_SIZE];
-        deser.copy_from_slice(bytes);
-        Ok(BlindedSignatureCommitment::from(deser))
-    })?;
-    let blind_signature = BlindSignature::new(&commitment, &messages, &sk, &pk).map_py_err()?;
-    Ok(PyBlindSignature::new(blind_signature))
-}
-
-#[pyfunction]
-/// sign_messages_blinded_context(messages, sk, pk, context, signing_nonce, pre_hashed=False)
+/// sign_messages_blinded_context(messages, sk, pk, context, signing_nonce=None, pre_hashed=False)
 /// --
 ///
 ///
 fn sign_messages_blinded_context<'py>(
     py: Python<'py>,
     messages: BTreeMap<usize, &PyAny>,
-    sk: ExtractArg<PySecretKey>,
+    sk: ExtractArg<PyBlsSecretKey>,
     pk: ExtractArg<PyPublicKey>,
     context: &PyAny,
-    signing_nonce: &PyAny,
+    signing_nonce: Option<&PyAny>,
     pre_hashed: Option<bool>,
 ) -> PyResult<PyBlindSignature> {
+    let sk = sk.into_owned();
+    let pk = pk.into_owned();
     let messages = hashed_message_btree(py, messages, pre_hashed)?;
     let context: BlindSignatureContext = py_deserialize_compressed(py, context)?;
-    let signing_nonce: SignatureNonce = deserialize_field_element(py, &signing_nonce)?;
-    let blind_signature =
-        Issuer::blind_sign(&context, &messages, &sk, &pk, &signing_nonce).map_py_err()?;
+    let signing_nonce: ProofNonce = signing_nonce
+        .map(|nonce| py_deserialize_try_from(py, nonce))
+        .unwrap_or_else(|| Ok(ProofNonce::hash(DEFAULT_NONCE)))?;
+    let blind_signature = py
+        .allow_threads(|| Issuer::blind_sign(&context, &messages, &sk, &pk, &signing_nonce))
+        .map_py_err()?;
     Ok(PyBlindSignature::new(blind_signature))
 }
 
@@ -211,7 +175,7 @@ fn unblind_signature<'py>(
     signature: ExtractArg<PyBlindSignature>,
     blinding: &PyAny,
 ) -> PyResult<PySignature> {
-    let blinding: SignatureBlinding = deserialize_field_element(py, &blinding)?;
+    let blinding: SignatureBlinding = py_deserialize_try_from(py, &blinding)?;
     let unblinded = signature.to_unblinded(&blinding);
     Ok(PySignature::new(unblinded))
 }
@@ -233,12 +197,10 @@ fn verify_signature<'py>(
 }
 
 pub fn register(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_wrapped(wrap_pyfunction!(create_blinding_commitment))?;
     m.add_wrapped(wrap_pyfunction!(create_blinding_context))?;
     m.add_wrapped(wrap_pyfunction!(generate_signing_nonce))?;
     m.add_wrapped(wrap_pyfunction!(hash_message))?;
     m.add_wrapped(wrap_pyfunction!(sign_messages))?;
-    m.add_wrapped(wrap_pyfunction!(sign_messages_blinded_commitment))?;
     m.add_wrapped(wrap_pyfunction!(sign_messages_blinded_context))?;
     m.add_wrapped(wrap_pyfunction!(unblind_signature))?;
     m.add_wrapped(wrap_pyfunction!(verify_signature))?;
