@@ -11,7 +11,7 @@ use std::os::raw::c_int;
 
 use super::buffer::{copy_buffer_arg, create_safe_buffer, release_buffer};
 use super::error::PyBbsResult;
-use super::helpers::{py_deserialize_json, py_serialize_json, ExtractArg, ParseArg};
+use super::helpers::{py_bytes, py_deserialize_try_from, ExtractArg, ParseArg};
 
 #[pyclass(name=PublicKey)]
 pub struct PyPublicKey {
@@ -41,15 +41,15 @@ impl PyBlsPublicKey {
     }
 
     #[text_signature = "()"]
-    pub fn to_json(slf: PyRef<Self>) -> PyResult<String> {
-        py_serialize_json(&slf.inner)
+    pub fn to_bytes<'py>(slf: pyo3::PyRef<Self>, py: Python<'py>) -> &'py pyo3::types::PyBytes {
+        py_bytes(py, slf.inner.to_bytes_compressed_form().to_vec())
     }
 }
 
 #[pyproto]
 impl PyBufferProtocol for PyBlsPublicKey {
     fn bf_getbuffer(slf: PyRefMut<Self>, view: *mut Py_buffer, flags: c_int) -> PyResult<()> {
-        let buf = serde_json::to_vec(&slf.inner).map_py_err()?;
+        let buf = slf.inner.to_bytes_compressed_form().to_vec();
         let py = unsafe { Python::assume_gil_acquired() };
         create_safe_buffer(py, buf, view, flags)
     }
@@ -91,7 +91,7 @@ impl ParseArg for PyBlsPublicKey {
             let inst = <PyRef<Self> as FromPyObject<'py>>::extract(arg)?;
             Ok(ExtractArg::Ref(inst))
         } else {
-            py_deserialize_json(py, arg).map(ExtractArg::Owned)
+            py_deserialize_try_from(py, arg).map(ExtractArg::Owned)
         }
     }
     fn to_ref<'py>(arg: &'py PyRef<Self>) -> &'py Self::Target {

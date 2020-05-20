@@ -1,6 +1,6 @@
 use pyo3::exceptions::ValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyString};
+use pyo3::types::PyBytes;
 use pyo3::PyClass;
 
 use bbs::prelude::ToVariableLengthBytes;
@@ -39,33 +39,6 @@ where
         T::from_bytes_compressed_form(bytes).map_py_err()
     })
 }
-
-pub fn py_serialize_json<T>(obj: &T) -> PyResult<String>
-where
-    T: serde::ser::Serialize,
-{
-    let result = serde_json::to_string(obj).map_py_err()?;
-    Ok(result)
-}
-
-pub fn py_deserialize_json<'py, T>(py: Python<'py>, arg: &PyAny) -> PyResult<T>
-where
-    T: for<'a> serde::Deserialize<'a>,
-{
-    if let Ok(strval) = <PyString as PyTryFrom>::try_from(arg) {
-        serde_json::from_str::<T>(strval.to_string()?.as_ref()).map_py_err()
-    } else {
-        map_buffer_arg(py, arg, |bytes| {
-            serde_json::from_slice::<T>(bytes).map_py_err()
-        })
-    }
-}
-
-/*
-pub fn serialize_field_element(val: ProofNonce) -> PyResult<Vec<u8>> {
-    Ok(val.to_compressed_bytes().to_vec())
-}
-*/
 
 pub fn py_deserialize_try_from<'py, 'a, T>(py: Python<'py>, arg: &PyAny) -> PyResult<T>
 where

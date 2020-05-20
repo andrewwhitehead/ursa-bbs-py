@@ -26,7 +26,6 @@ def random_cred(message, count, dpk, sk):
     start = perf_counter()
 
     signature = bbs.sign_messages(messages, sk, pk)
-    # log("Signature:", signature.to_json())
     tot_2 += perf_counter() - start
     return signature
 

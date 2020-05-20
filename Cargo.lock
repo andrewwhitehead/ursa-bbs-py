@@ -37,7 +37,8 @@ dependencies = [
 [[package]]
 name = "bbs"
 version = "0.4.0"
-source = "git+https://github.com/mikelodder7/ursa?rev=d3a513c994bcb666b0e8453750e8d3813a98e4e4#d3a513c994bcb666b0e8453750e8d3813a98e4e4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1dbe7ae2cbe070c0feabb21717d506de61fffc8fbd6bb770fa21208ddd7278f2"
 dependencies = [
  "arrayref",
  "blake2",
@@ -809,9 +810,6 @@ dependencies = [
  "bbs",
  "hex",
  "pyo3",
- "serde",
- "serde_derive",
- "serde_json",
  "zeroize",
 ]
 

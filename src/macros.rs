@@ -15,11 +15,6 @@ macro_rules! py_compressed_bytes_wrapper {
             ) -> &'py pyo3::types::PyBytes {
                 $crate::helpers::py_bytes(py, slf.inner.to_bytes_compressed_form().to_vec())
             }
-
-            #[text_signature = "()"]
-            pub fn to_json(slf: pyo3::PyRef<Self>) -> PyResult<String> {
-                $crate::helpers::py_serialize_json(&slf.inner)
-            }
         }
 
         #[pyproto]

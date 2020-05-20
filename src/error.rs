@@ -16,15 +16,3 @@ impl<T> PyBbsResult<T> for Result<T, bbs::prelude::BBSError> {
         }
     }
 }
-
-impl<T> PyBbsResult<T> for Result<T, serde_json::Error> {
-    fn map_py_err(self) -> PyResult<T> {
-        match self {
-            Ok(r) => Ok(r),
-            Err(err) => Err(PyErr::new::<BbsError, _>(format!(
-                "Error serializing JSON: {}",
-                err
-            ))),
-        }
-    }
-}
